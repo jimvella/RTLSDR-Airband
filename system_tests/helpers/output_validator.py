@@ -200,16 +200,21 @@ def assert_mp3_silent(mp3_dir: Path, filename_template: str) -> None:
 
 
 def split_file_names(
-    mp3_dir: Path, filename_template: str, freq_hz: int | None = None
+    mp3_dir: Path,
+    filename_template: str,
+    freq_hz: int | None = None,
+    milliseconds: bool = False,
 ) -> tuple[list[str], dict[str, list[str]]]:
     """
     Sort a template's MP3 files by split_include_transmission_start naming.
 
     Returns (standalone stamps, {transmission start stamp: part start stamps in
     file-name order}). Any other name for the template fails the assertion. Pass
-    freq_hz for an include_freq output; every name must then end with it.
+    freq_hz for an include_freq output; every name must then end with it. Pass
+    milliseconds for a split_timestamp_milliseconds output; every stamp must then
+    end with ".mmm".
     """
-    stamp = r"(\d{8}_\d{6})"
+    stamp = r"(\d{8}_\d{6}\.\d{3})" if milliseconds else r"(\d{8}_\d{6})"
     freq = f"_{freq_hz}" if freq_hz is not None else ""
     pattern = re.compile(
         rf"{re.escape(filename_template)}_{stamp}(?:_{stamp})?{freq}\.mp3"

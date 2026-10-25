@@ -11,11 +11,16 @@ each produces shows whether the per-output override took effect.
 The split_include_transmission_start tests use the same audio with a short
 split_max_file_time, so each transmission is cut into several parts that must be
 named as one group.
+
+The split_timestamp_milliseconds test checks that every stamp in a name gains
+".mmm" and still agrees with a whole-second output's stamp.
 """
 
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
+import pytest
 from conftest import BinaryUnderTest, run_rtl_airband
 from helpers import config_writer, iq_generator, output_validator
 
@@ -162,10 +167,11 @@ def _assert_split_into_parts(
     template: str,
     freq_hz: int | None = None,
     transmissions: int = 2,
+    milliseconds: bool = False,
 ) -> None:
     """Every transmission is split, and every part is named under its start stamp."""
     standalone, parts = output_validator.split_file_names(
-        test_output_dir, template, freq_hz
+        test_output_dir, template, freq_hz, milliseconds
     )
     assert (
         not standalone
@@ -186,9 +192,15 @@ def _assert_split_into_parts(
 
 
 def _assert_standalone_only(
-    test_output_dir: Path, template: str, min_files: int
+    test_output_dir: Path,
+    template: str,
+    min_files: int,
+    freq_hz: int | None = None,
+    milliseconds: bool = False,
 ) -> list[str]:
-    standalone, parts = output_validator.split_file_names(test_output_dir, template)
+    standalone, parts = output_validator.split_file_names(
+        test_output_dir, template, freq_hz, milliseconds
+    )
     assert not parts, f"{template}: no file should get a part name: {parts}"
     assert (
         len(standalone) >= min_files
@@ -249,6 +261,62 @@ def test_split_include_transmission_start(
     ), f"Split parts total {parts_s:.2f}s should match the unsplit {whole_s:.2f}s"
 
 
+def _parse_stamp(stamp: str) -> datetime:
+    return datetime.strptime(
+        stamp, "%Y%m%d_%H%M%S.%f" if "." in stamp else "%Y%m%d_%H%M%S"
+    )
+
+
+def test_split_timestamp_milliseconds(
+    binary_under_test: BinaryUnderTest,
+    test_output_dir: Path,
+    cache_dir: Path,
+) -> None:
+    """
+    Every stamp gains ".mmm", including part names and with include_freq.
+
+    The option is set globally; "seconds" turns it off per output and keeps today's
+    names, and its stamps must agree with "millis" to the second.
+    """
+    freq_hz = CENTERFREQ_HZ + iq_generator.SCAN_DEMOD_OFFSET_HZ
+    _run_split_outputs(
+        binary_under_test.path,
+        test_output_dir,
+        _scan_fixture(cache_dir),
+        [
+            _split_output(test_output_dir, "millis", {}),
+            _split_output(
+                test_output_dir, "seconds", {"split_timestamp_milliseconds": False}
+            ),
+            _split_output(test_output_dir, "millisfreq", {"include_freq": True}),
+            _split_output(
+                test_output_dir,
+                "millisparts",
+                {
+                    "split_max_file_time": MAX_FILE_TIME_S,
+                    "split_include_transmission_start": True,
+                },
+            ),
+        ],
+        global_settings={"split_timestamp_milliseconds": True},
+    )
+
+    millis = _assert_standalone_only(
+        test_output_dir, "millis", min_files=2, milliseconds=True
+    )
+    seconds = _assert_standalone_only(test_output_dir, "seconds", min_files=2)
+    _assert_standalone_only(
+        test_output_dir, "millisfreq", min_files=2, freq_hz=freq_hz, milliseconds=True
+    )
+    _assert_split_into_parts(test_output_dir, "millisparts", milliseconds=True)
+
+    assert len(millis) == len(seconds) == 2, f"{millis} vs {seconds}"
+    for with_ms, without_ms in zip(sorted(millis), sorted(seconds)):
+        # each output reads the clock separately, so allow for a second boundary
+        delta = (_parse_stamp(with_ms) - _parse_stamp(without_ms)).total_seconds()
+        assert 0 <= delta < 1.1, f"{with_ms} does not match {without_ms}"
+
+
 def _run_config(
     binary: Path, config_path: Path, text: str
 ) -> subprocess.CompletedProcess:
@@ -278,29 +346,27 @@ devices: ({{
 """
 
 
-def test_split_include_transmission_start_config_validation(
+@pytest.mark.parametrize(
+    "setting", ["split_include_transmission_start", "split_timestamp_milliseconds"]
+)
+def test_split_name_setting_config_validation(
     binary_under_test: BinaryUnderTest,
     test_output_dir: Path,
     cache_dir: Path,
+    setting: str,
 ) -> None:
     """Bad values and mixer outputs are errors; an output without splitting only warns."""
     iq_file = _scan_fixture(cache_dir)
     split = "split_on_transmission = true;"
     errors = {
         "mixer": _validation_config(
-            iq_file,
-            test_output_dir,
-            split,
-            mixer="split_include_transmission_start = true;",
+            iq_file, test_output_dir, split, mixer=f"{setting} = true;"
         ),
         "per_output_int": _validation_config(
-            iq_file, test_output_dir, f"{split} split_include_transmission_start = 1;"
+            iq_file, test_output_dir, f"{split} {setting} = 1;"
         ),
         "global_string": _validation_config(
-            iq_file,
-            test_output_dir,
-            split,
-            top='split_include_transmission_start = "yes";',
+            iq_file, test_output_dir, split, top=f'{setting} = "yes";'
         ),
     }
     for name, text in errors.items():
@@ -309,31 +375,25 @@ def test_split_include_transmission_start_config_validation(
         )
         assert result.returncode != 0, f"{name}: config should be rejected"
         assert (
-            "Configuration error" in result.stderr
-            and "split_include_transmission_start" in result.stderr
+            "Configuration error" in result.stderr and setting in result.stderr
         ), f"{name}: unexpected stderr:\n{result.stderr}"
 
     ignored = _run_config(
         binary_under_test.path,
         test_output_dir / "ignored.conf",
-        _validation_config(
-            iq_file, test_output_dir, "split_include_transmission_start = true;"
-        ),
+        _validation_config(iq_file, test_output_dir, f"{setting} = true;"),
     )
     assert ignored.returncode == 0, f"Warning only, got:\n{ignored.stderr}"
     assert (
-        "split_include_transmission_start is ignored without split_on_transmission"
-        in ignored.stderr
+        f"{setting} is ignored without split_on_transmission" in ignored.stderr
     ), f"Expected a warning, got:\n{ignored.stderr}"
 
     global_only = _run_config(
         binary_under_test.path,
         test_output_dir / "global_only.conf",
-        _validation_config(
-            iq_file, test_output_dir, "", top="split_include_transmission_start = true;"
-        ),
+        _validation_config(iq_file, test_output_dir, "", top=f"{setting} = true;"),
     )
     assert global_only.returncode == 0, global_only.stderr
     assert (
-        "split_include_transmission_start is ignored" not in global_only.stderr
+        f"{setting} is ignored" not in global_only.stderr
     ), f"The global value alone should not warn:\n{global_only.stderr}"

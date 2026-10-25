@@ -108,7 +108,8 @@ def write_config(
             - split_outputs (list[dict]|None): Extra "file" outputs with
               split_on_transmission enabled, each {"directory": str, "template": str,
               "overrides": dict}, where overrides maps per-output config keys
-              (split file times, split_include_transmission_start) to values.
+              (split file times, split_include_transmission_start,
+              split_timestamp_milliseconds) to values.
         output_dir: Directory where mixer MP3 outputs are written. Unused when
             mixers is empty/None.
         speedup_factor: IQ replay speed factor (1.0 = real-time).
@@ -129,7 +130,8 @@ def write_config(
             is rewritten while running.
         split_times: If provided, top-level split settings written as global
             config keys (split_min_file_time / split_max_file_time /
-            split_max_idle_time / split_include_transmission_start).
+            split_max_idle_time / split_include_transmission_start /
+            split_timestamp_milliseconds).
     """
     lines = []
     if fft_size is not None:

@@ -60,12 +60,14 @@ static void parse_split_file_times(libconfig::Setting& out, file_data* fdata, in
     }
 
     // the split_* name settings only take effect with split_on_transmission
-    if (out.exists("split_include_transmission_start")) {
-        if (parsing_mixers) {
-            output_error(i, j, o, parsing_mixers, "split_include_transmission_start is not allowed for mixers");
-        }
-        if (!fdata->split_on_transmission) {
-            log(LOG_WARNING, "Warning: devices.[%d] channels.[%d] outputs.[%d]: split_include_transmission_start is ignored without split_on_transmission\n", i, j, o);
+    for (const char* name_setting : {"split_include_transmission_start", "split_timestamp_milliseconds"}) {
+        if (out.exists(name_setting)) {
+            if (parsing_mixers) {
+                output_error(i, j, o, parsing_mixers, string(name_setting) + " is not allowed for mixers");
+            }
+            if (!fdata->split_on_transmission) {
+                log(LOG_WARNING, "Warning: devices.[%d] channels.[%d] outputs.[%d]: %s is ignored without split_on_transmission\n", i, j, o, name_setting);
+            }
         }
     }
 
@@ -92,6 +94,11 @@ static void parse_split_file_times(libconfig::Setting& out, file_data* fdata, in
     // if split_on_transmission is false then split_include_transmission_start gets overridden to false. even a valid
     // config can have global_split_include_transmission_start true but this file may not have split_on_transmission
     fdata->split_include_transmission_start = fdata->split_include_transmission_start && fdata->split_on_transmission;
+
+    if (!setting_as_bool_or(out, "split_timestamp_milliseconds", global_split_timestamp_milliseconds, &fdata->split_timestamp_milliseconds)) {
+        output_error(i, j, o, parsing_mixers, "split_timestamp_milliseconds must be a boolean");
+    }
+    fdata->split_timestamp_milliseconds = fdata->split_timestamp_milliseconds && fdata->split_on_transmission;
 }
 
 static int parse_outputs(libconfig::Setting& outs, channel_t* channel, int i, int j, bool parsing_mixers) {

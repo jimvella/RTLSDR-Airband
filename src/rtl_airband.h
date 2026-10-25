@@ -144,6 +144,7 @@ struct file_data {
     double split_max_file_time;
     double split_max_idle_time;
     bool split_include_transmission_start;
+    bool split_timestamp_milliseconds;
 
     // set per output file
     timeval transmission_start_time;
@@ -371,6 +372,7 @@ extern double global_split_min_file_time;
 extern double global_split_max_file_time;
 extern double global_split_max_idle_time;
 extern bool global_split_include_transmission_start;
+extern bool global_split_timestamp_milliseconds;
 extern size_t fft_size, fft_size_log;
 extern int device_count, mixer_count;
 extern int shout_metadata_delay;

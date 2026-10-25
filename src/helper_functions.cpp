@@ -143,3 +143,20 @@ bool setting_as_bool_or(const libconfig::Setting& parent, const char* key, bool 
     *value = (bool)parent[key];
     return true;
 }
+
+// "_YYYYMMDD_HH" for hourly files, "_YYYYMMDD_HHMMSS" per transmission, the latter with
+// ".mmm" (truncated, so it never rounds up into the next second) if milliseconds is set.
+// Returns an empty string if formatting fails.
+string format_file_timestamp(const struct tm* time, long usec, bool split_on_transmission, bool milliseconds) {
+    char timestamp[32];
+    if (strftime(timestamp, sizeof(timestamp), split_on_transmission ? "_%Y%m%d_%H%M%S" : "_%Y%m%d_%H", time) == 0) {
+        return "";
+    }
+    string result(timestamp);
+    if (split_on_transmission && milliseconds) {
+        char millis[24];
+        snprintf(millis, sizeof(millis), ".%03ld", (usec / 1000) % 1000);
+        result += millis;
+    }
+    return result;
+}

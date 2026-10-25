@@ -44,4 +44,6 @@ bool setting_as_double(const libconfig::Setting& setting, double* value);
 bool setting_as_double_or(const libconfig::Setting& parent, const char* key, double fallback, double* value);
 bool setting_as_bool_or(const libconfig::Setting& parent, const char* key, bool fallback, bool* value);
 
+std::string format_file_timestamp(const struct tm* time, long usec, bool split_on_transmission, bool milliseconds);
+
 #endif /* _HELPER_FUNCTIONS_H */

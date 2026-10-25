@@ -251,17 +251,14 @@ int rename_if_exists(char const* oldpath, char const* newpath) {
 }
 
 static std::string build_output_filename(const file_data* fdata, bool include_tx_time) {
-    // timestamp format includes minutes and seconds if splitting on transmission
-    const char* timestamp_format = fdata->split_on_transmission ? "_%Y%m%d_%H%M%S" : "_%Y%m%d_%H";
-
     struct tm open_time;
     file_time(&fdata->file_open_time.tv_sec, &open_time);
     struct tm transmission_time;
     file_time(&fdata->transmission_start_time.tv_sec, &transmission_time);
 
     // build timestamp strings for open time
-    char open_timestamp[32];
-    if (strftime(open_timestamp, sizeof(open_timestamp), timestamp_format, &open_time) == 0) {
+    const std::string open_timestamp = format_file_timestamp(&open_time, fdata->file_open_time.tv_usec, fdata->split_on_transmission, fdata->split_timestamp_milliseconds);
+    if (open_timestamp.empty()) {
         log(LOG_NOTICE, "strftime returned 0\n");
         return "";
     }
@@ -288,8 +285,8 @@ static std::string build_output_filename(const file_data* fdata, bool include_tx
 
     // add transmission start first (if asked)
     if (include_tx_time) {
-        char transmission_timestamp[32];
-        if (strftime(transmission_timestamp, sizeof(transmission_timestamp), timestamp_format, &transmission_time) == 0) {
+        const std::string transmission_timestamp = format_file_timestamp(&transmission_time, fdata->transmission_start_time.tv_usec, fdata->split_on_transmission, fdata->split_timestamp_milliseconds);
+        if (transmission_timestamp.empty()) {
             log(LOG_NOTICE, "strftime returned 0\n");
             return "";
         }

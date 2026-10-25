@@ -336,3 +336,43 @@ TEST_F(HelperFunctionsTest, setting_as_bool_or_rejects_non_bool) {
     EXPECT_FALSE(setting_as_bool_or(config.getRoot(), "int_value", false, &value));
     EXPECT_FALSE(setting_as_bool_or(config.getRoot(), "string_value", false, &value));
 }
+
+// 2026-10-24 03:15:22 UTC
+static struct tm example_time(void) {
+    struct tm time = {};
+    time.tm_year = 2026 - 1900;
+    time.tm_mon = 10 - 1;
+    time.tm_mday = 24;
+    time.tm_hour = 3;
+    time.tm_min = 15;
+    time.tm_sec = 22;
+    return time;
+}
+
+TEST_F(HelperFunctionsTest, format_file_timestamp_hourly) {
+    struct tm time = example_time();
+    EXPECT_EQ(format_file_timestamp(&time, 123456, false, false), "_20261024_03");
+}
+
+TEST_F(HelperFunctionsTest, format_file_timestamp_hourly_ignores_milliseconds) {
+    struct tm time = example_time();
+    EXPECT_EQ(format_file_timestamp(&time, 123456, false, true), "_20261024_03");
+}
+
+TEST_F(HelperFunctionsTest, format_file_timestamp_split) {
+    struct tm time = example_time();
+    EXPECT_EQ(format_file_timestamp(&time, 123456, true, false), "_20261024_031522");
+}
+
+TEST_F(HelperFunctionsTest, format_file_timestamp_split_milliseconds) {
+    struct tm time = example_time();
+    EXPECT_EQ(format_file_timestamp(&time, 123456, true, true), "_20261024_031522.123");
+}
+
+TEST_F(HelperFunctionsTest, format_file_timestamp_milliseconds_truncate) {
+    struct tm time = example_time();
+    EXPECT_EQ(format_file_timestamp(&time, 0, true, true), "_20261024_031522.000");
+    EXPECT_EQ(format_file_timestamp(&time, 999, true, true), "_20261024_031522.000");
+    EXPECT_EQ(format_file_timestamp(&time, 7000, true, true), "_20261024_031522.007");
+    EXPECT_EQ(format_file_timestamp(&time, 999999, true, true), "_20261024_031522.999");
+}

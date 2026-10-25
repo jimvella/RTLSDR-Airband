@@ -150,6 +150,9 @@ struct file_data {
     timeval transmission_start_time;
     timeval file_open_time;
     timeval last_write_time;
+    // the times file names show: for split files, when the audio was received
+    timeval transmission_name_time;
+    timeval file_name_time;
     int frequency;
     std::string file_path;
     std::string file_path_tmp;
@@ -264,6 +267,8 @@ struct channel_t {
     float waveout_r[WAVE_LEN];   // right channel mixer output
     float iq_in[2 * WAVE_LEN];   // raw input samples for I/Q outputs and NFM demod
     float iq_out[2 * WAVE_LEN];  // raw output samples for I/Q outputs (FIXME: allocate only if required)
+    timeval waveout_time;        // when waveout[0] of the current batch was received (zero for mixers)
+    timeval iq_out_time;         // when iq_out[0] of the current batch was received
 #ifdef NFM
     float pr;            // previous sample - real part
     float pj;            // previous sample - imaginary part

@@ -388,6 +388,7 @@ void* demodulate(void* params) {
     gettimeofday(&ts, NULL);
 #endif /* DEBUG */
     size_t available;
+    timeval appended_at;
     int device_num = demod_params->device_start;
     while (true) {
         if (do_exit) {
@@ -405,6 +406,7 @@ void* demodulate(void* params) {
             available = dev->input->bufe - dev->input->bufs;
         else
             available = dev->input->buf_size - dev->input->bufs + dev->input->bufe;
+        appended_at = dev->input->last_append_time;
         pthread_mutex_unlock(&dev->input->buffer_lock);
 
         if (devices_running == 0) {
@@ -524,10 +526,17 @@ void* demodulate(void* params) {
         dev->waveend += FFT_BATCH;
 
         if (dev->waveend >= WAVE_BATCH + AGC_EXTRA) {
+            const double bytes_per_sec = (double)dev->input->sample_rate * dev->input->bytes_per_sample * 2;
+            const timeval waveout_time = audio_batch_start_time(appended_at, available, dev->waveend, AGC_EXTRA, FFT_BATCH, bps, fft_size * dev->input->bytes_per_sample, bytes_per_sec);
+            // iq_out[m] comes from iq_in[m], AGC_EXTRA samples after waveout[m]'s source
+            const timeval iq_out_time = timeval_offset(waveout_time, (double)(AGC_EXTRA * bps) / bytes_per_sec);
+
             for (int i = 0; i < dev->channel_count; i++) {
                 AFC afc(dev, i);
                 channel_t* channel = dev->channels + i;
                 freq_t* fparms = channel->freqlist + channel->freq_idx;
+                channel->waveout_time = waveout_time;
+                channel->iq_out_time = iq_out_time;
 
                 // set to NO_SIGNAL, will be updated to SIGNAL based on squelch below
                 channel->axcindicate = NO_SIGNAL;

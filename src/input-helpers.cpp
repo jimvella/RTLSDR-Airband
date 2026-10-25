@@ -18,6 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "input-helpers.h"
 #include <pthread.h>       // pthread_mutex_lock, unlock
 #include <string.h>        // memcpy
 #include <iostream>        // cerr
@@ -35,6 +36,15 @@
  * without wrapping.
  */
 void circbuffer_append(input_t* const input, unsigned char* buf, size_t len) {
+    timeval now;
+    gettimeofday(&now, NULL);
+    circbuffer_append_at(input, buf, len, now);
+}
+
+/* As circbuffer_append, with the time the chunk's last sample arrived. The demod thread
+ * uses it to work out when the audio it produces was received.
+ */
+void circbuffer_append_at(input_t* const input, unsigned char* buf, size_t len, const timeval& arrived) {
     if (len == 0)
         return;
     pthread_mutex_lock(&input->buffer_lock);
@@ -55,6 +65,7 @@ void circbuffer_append(input_t* const input, unsigned char* buf, size_t len) {
 
     size_t old_end = input->bufe;
     input->bufe = (input->bufe + len) % input->buf_size;
+    input->last_append_time = arrived;
     if (old_end < input->bufs && input->bufe >= input->bufs) {
         std::cerr << "Warning: buffer overflow\n";
         input->overflow_count++;

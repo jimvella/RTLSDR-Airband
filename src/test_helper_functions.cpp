@@ -376,3 +376,52 @@ TEST_F(HelperFunctionsTest, format_file_timestamp_milliseconds_truncate) {
     EXPECT_EQ(format_file_timestamp(&time, 7000, true, true), "_20261024_031522.007");
     EXPECT_EQ(format_file_timestamp(&time, 999999, true, true), "_20261024_031522.999");
 }
+
+TEST_F(HelperFunctionsTest, timeval_offset_forward_across_second) {
+    const timeval t = timeval_offset({10, 900000}, 0.2);
+    EXPECT_EQ(t.tv_sec, 11);
+    EXPECT_EQ(t.tv_usec, 100000);
+}
+
+TEST_F(HelperFunctionsTest, timeval_offset_back_across_second) {
+    const timeval t = timeval_offset({10, 100000}, -0.2);
+    EXPECT_EQ(t.tv_sec, 9);
+    EXPECT_EQ(t.tv_usec, 900000);
+}
+
+TEST_F(HelperFunctionsTest, timeval_offset_rounds_to_microseconds) {
+    const timeval t = timeval_offset({10, 0}, 0.0000004);
+    EXPECT_EQ(t.tv_sec, 10);
+    EXPECT_EQ(t.tv_usec, 0);
+    const timeval u = timeval_offset({10, 0}, -0.0000006);
+    EXPECT_EQ(u.tv_sec, 9);
+    EXPECT_EQ(u.tv_usec, 999999);
+}
+
+// 2.048 Msps U8 input: 512 bytes per wave sample (1/8000 s), 4,096,000 bytes per second,
+// fft_size 512 so half an FFT window is 512 bytes
+static const size_t example_bps = 512;
+static const double example_bytes_per_sec = 4096000.0;
+static const size_t example_half_window = 512;
+
+TEST_F(HelperFunctionsTest, audio_batch_start_time_fftw) {
+    // 4096 bytes (1 ms) unread, newest wave sample 1099 from the window at bufs, first output
+    // sample is wave index -100: (1100 + 100 - 1) * 512 + 4096 - 512 bytes = 150.750 ms back
+    const timeval t = audio_batch_start_time({1000, 500000}, 4096, 1100, 100, 1, example_bps, example_half_window, example_bytes_per_sec);
+    EXPECT_EQ(t.tv_sec, 1000);
+    EXPECT_EQ(t.tv_usec, 349250);
+}
+
+TEST_F(HelperFunctionsTest, audio_batch_start_time_gpu_batches) {
+    // VideoCore FFT: 250 wave samples per FFT batch, the newest from bufs + 249 * bps
+    // (1250 + 100 - 250) * 512 + 4096 - 512 bytes = 138.375 ms back
+    const timeval t = audio_batch_start_time({1000, 500000}, 4096, 1250, 100, 250, example_bps, example_half_window, example_bytes_per_sec);
+    EXPECT_EQ(t.tv_sec, 1000);
+    EXPECT_EQ(t.tv_usec, 361625);
+}
+
+TEST_F(HelperFunctionsTest, audio_batch_start_time_across_second) {
+    const timeval t = audio_batch_start_time({1000, 100000}, 4096, 1100, 100, 1, example_bps, example_half_window, example_bytes_per_sec);
+    EXPECT_EQ(t.tv_sec, 999);
+    EXPECT_EQ(t.tv_usec, 949250);
+}

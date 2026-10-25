@@ -18,6 +18,7 @@
  */
 
 #include <sys/stat.h>  // struct stat, S_ISDIR
+#include <cmath>       // llround
 #include <cstddef>     // size_t
 #include <cstring>     // strerror
 #include <libconfig.h++>
@@ -159,4 +160,26 @@ string format_file_timestamp(const struct tm* time, long usec, bool split_on_tra
         result += millis;
     }
     return result;
+}
+
+timeval timeval_offset(const timeval& t, double seconds) {
+    const long long usec = (long long)t.tv_sec * 1000000LL + t.tv_usec + llround(seconds * 1e6);
+    timeval result;
+    result.tv_sec = (time_t)(usec / 1000000LL);
+    result.tv_usec = (suseconds_t)(usec % 1000000LL);
+    if (result.tv_usec < 0) {
+        result.tv_sec -= 1;
+        result.tv_usec += 1000000;
+    }
+    return result;
+}
+
+// The input chunk that ends at the buffer's write position (bufe) arrived at appended_at, and
+// available_bytes are still unread between bufs and bufe. Each wave sample is computed from an
+// FFT window of input; the newest one (index waveend - 1) from the window starting at
+// bufs + (fft_batch - 1) * bps, timed at the window's middle. The batch handed to the outputs
+// starts agc_extra wave samples before index 0 (AM uses wavein[j - agc_extra] for waveout[j]).
+timeval audio_batch_start_time(const timeval& appended_at, size_t available_bytes, int waveend, int agc_extra, int fft_batch, size_t bps, size_t half_window_bytes, double bytes_per_sec) {
+    const double bytes_back = (double)available_bytes + (double)(waveend + agc_extra - fft_batch) * (double)bps - (double)half_window_bytes;
+    return timeval_offset(appended_at, -bytes_back / bytes_per_sec);
 }

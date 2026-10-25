@@ -260,6 +260,8 @@ Output types: `icecast`, `file`, `rawfile`, `udp_stream`, `mixer`, `pulse`.
 
 `split_timestamp_milliseconds` (same scope and precedence, parsed in the same places) appends `.mmm` to every timestamp in a split file's name, `<template>_YYYYMMDD_HHMMSS.mmm`, truncated rather than rounded. Timestamps are formatted by `format_file_timestamp` (`src/helper_functions.cpp`). Example: `config/split_timestamp_milliseconds.conf`.
 
+Split file names give when the file's first sample was received, not when the output thread opened it (which trails by a varying 0.1 to 0.3 s). Each input stamps its chunks as they arrive (`circbuffer_append_at`, `input_t::last_append_time`; the file input uses its position in the recording instead, so names do not depend on `speedup_factor`). The demod thread reads the stamp with `available` under `buffer_lock` and works back to the batch's first output sample with `audio_batch_start_time` (`src/helper_functions.cpp`), storing it in `channel_t::waveout_time` (and `iq_out_time`, `AGC_EXTRA` samples later, for rawfile). `output_file_ready` names split files from these via `file_data::file_name_time` / `transmission_name_time`; `file_open_time` and `transmission_start_time` stay on the wall clock, so when files close is unchanged. Non-split files and mixers (whose channels have no stamp) still use the clock.
+
 ### Unit Tests
 
 Tests use Google Test (fetched via CMake FetchContent). Test files in `src/test_*.cpp` cover filters, squelch, CTCSS, helper functions, and signal generation. `src/test_base_class.h` provides test utilities.

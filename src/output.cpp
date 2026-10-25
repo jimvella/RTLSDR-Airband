@@ -252,12 +252,12 @@ int rename_if_exists(char const* oldpath, char const* newpath) {
 
 static std::string build_output_filename(const file_data* fdata, bool include_tx_time) {
     struct tm open_time;
-    file_time(&fdata->file_open_time.tv_sec, &open_time);
+    file_time(&fdata->file_name_time.tv_sec, &open_time);
     struct tm transmission_time;
-    file_time(&fdata->transmission_start_time.tv_sec, &transmission_time);
+    file_time(&fdata->transmission_name_time.tv_sec, &transmission_time);
 
     // build timestamp strings for open time
-    const std::string open_timestamp = format_file_timestamp(&open_time, fdata->file_open_time.tv_usec, fdata->split_on_transmission, fdata->split_timestamp_milliseconds);
+    const std::string open_timestamp = format_file_timestamp(&open_time, fdata->file_name_time.tv_usec, fdata->split_on_transmission, fdata->split_timestamp_milliseconds);
     if (open_timestamp.empty()) {
         log(LOG_NOTICE, "strftime returned 0\n");
         return "";
@@ -285,7 +285,7 @@ static std::string build_output_filename(const file_data* fdata, bool include_tx
 
     // add transmission start first (if asked)
     if (include_tx_time) {
-        const std::string transmission_timestamp = format_file_timestamp(&transmission_time, fdata->transmission_start_time.tv_usec, fdata->split_on_transmission, fdata->split_timestamp_milliseconds);
+        const std::string transmission_timestamp = format_file_timestamp(&transmission_time, fdata->transmission_name_time.tv_usec, fdata->split_on_transmission, fdata->split_timestamp_milliseconds);
         if (transmission_timestamp.empty()) {
             log(LOG_NOTICE, "strftime returned 0\n");
             return "";
@@ -495,8 +495,9 @@ static bool close_if_necessary(output_t* output, bool reopening) {
  * If so, that file may need to be flushed and closed.
  *
  * If the existing open file is good for continued use, return true.
- * Otherwise, create a file name based on the current timestamp and
- * open that new file.  If that file open succeeded, return true.
+ * Otherwise, create a file name based on the current timestamp (for split
+ * files, when the audio was received) and open that new file.  If that file
+ * open succeeded, return true.
  */
 static bool output_file_ready(channel_t* channel, output_t* output) {
     file_data* fdata = (file_data*)(output->data);
@@ -518,13 +519,26 @@ static bool output_file_ready(channel_t* channel, output_t* output) {
     timeval current_time;
     gettimeofday(&current_time, NULL);
 
+    // split files are named after when their first sample was received, which reaches this
+    // thread a varying 0.1 to 0.3 s later. Other files keep the clock, so an hourly file
+    // opened just after the hour never takes the previous hour's name.
+    timeval name_time = current_time;
+    if (fdata->split_on_transmission) {
+        const timeval& received = (output->type == O_RAWFILE) ? channel->iq_out_time : channel->waveout_time;
+        if (timerisset(&received)) {
+            name_time = received;
+        }
+    }
+
     // set the transmission_start_time ONLY if not continuing a transmission
     if (!closed_due_to_max_time) {
         fdata->transmission_start_time = current_time;
+        fdata->transmission_name_time = name_time;
     }
 
     // always set open time and last write time to now
     fdata->file_open_time = current_time;
+    fdata->file_name_time = name_time;
     fdata->last_write_time = current_time;
 
     // if including frequency then set, otherwise use 0 so it's not included

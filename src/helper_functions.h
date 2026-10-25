@@ -20,7 +20,8 @@
 #ifndef _HELPER_FUNCTIONS_H
 #define _HELPER_FUNCTIONS_H
 
-#include <ctime>  // struct tm
+#include <sys/time.h>  // timeval
+#include <ctime>       // struct tm
 #include <string>
 
 namespace libconfig {
@@ -45,5 +46,8 @@ bool setting_as_double_or(const libconfig::Setting& parent, const char* key, dou
 bool setting_as_bool_or(const libconfig::Setting& parent, const char* key, bool fallback, bool* value);
 
 std::string format_file_timestamp(const struct tm* time, long usec, bool split_on_transmission, bool milliseconds);
+
+timeval timeval_offset(const timeval& t, double seconds);
+timeval audio_batch_start_time(const timeval& appended_at, size_t available_bytes, int waveend, int agc_extra, int fft_batch, size_t bps, size_t half_window_bytes, double bytes_per_sec);
 
 #endif /* _HELPER_FUNCTIONS_H */

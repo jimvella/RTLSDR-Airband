@@ -20,6 +20,7 @@
 #ifndef _INPUT_COMMON_H
 #define _INPUT_COMMON_H 1
 #include <pthread.h>
+#include <sys/time.h>  // timeval
 #include <libconfig.h++>
 
 #if __GNUC__ >= 4
@@ -40,6 +41,7 @@ struct input_t {
     unsigned char* buffer;
     void* dev_data;
     size_t buf_size, bufs, bufe;
+    timeval last_append_time;  // when the input chunk ending at bufe arrived
     size_t overflow_count;
     input_state_t state;
     sample_format_t sfmt;

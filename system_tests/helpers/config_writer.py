@@ -42,7 +42,7 @@ def _output_lines(ch: dict, mp3_tmp_dir: Path | None) -> list[str]:
     for split_out in ch.get("split_outputs") or []:
         entries.append(
             {
-                "type": "file",
+                "type": split_out.get("type", "file"),
                 "directory": split_out["directory"],
                 "template": split_out["template"],
                 "overrides": split_out.get("overrides", {}),
@@ -107,7 +107,7 @@ def write_config(
             - scan_freqs_hz (list[int]): Scan mode only — list of frequencies in Hz.
             - split_outputs (list[dict]|None): Extra "file" outputs with
               split_on_transmission enabled, each {"directory": str, "template": str,
-              "overrides": dict}, where overrides maps per-output config keys
+              "overrides": dict, "type": "file" (default) or "rawfile"}, where overrides maps per-output config keys
               (split file times, split_include_transmission_start,
               split_timestamp_milliseconds) to values.
         output_dir: Directory where mixer MP3 outputs are written. Unused when

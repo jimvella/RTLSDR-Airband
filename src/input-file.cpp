@@ -23,13 +23,14 @@
 #include <limits.h>  // SCHAR_MAX
 #include <stdio.h>
 #include <string.h>
-#include <syslog.h>         // FIXME: get rid of this
-#include <unistd.h>         // usleep
-#include <cmath>            // round
-#include <libconfig.h++>    // Setting
-#include "input-common.h"   // input_t, sample_format_t, input_state_t, MODULE_EXPORT
-#include "input-helpers.h"  // circbuffer_append
-#include "rtl_airband.h"    // do_exit, fft_size, debug_print, XCALLOC, error()
+#include <syslog.h>            // FIXME: get rid of this
+#include <unistd.h>            // usleep
+#include <cmath>               // round
+#include <libconfig.h++>       // Setting
+#include "helper_functions.h"  // timeval_offset
+#include "input-common.h"      // input_t, sample_format_t, input_state_t, MODULE_EXPORT
+#include "input-helpers.h"     // circbuffer_append_at
+#include "rtl_airband.h"       // do_exit, fft_size, debug_print, XCALLOC, error()
 
 using namespace std;
 
@@ -102,6 +103,13 @@ void* file_rx_thread(void* ctx) {
     log(LOG_DEBUG, "sample_rate: %d, bytes_per_sample: %d, speedup_factor: %f, time_per_byte_ms: %f, buf_len: %zu\n", input->sample_rate, input->bytes_per_sample, dev_data->speedup_factor,
         time_per_byte_ms, buf_len);
 
+    // stamp each chunk with the time it represents in the recording, from when reading
+    // started, so file names follow the recording whatever the speedup_factor
+    const double bytes_per_sec = (double)input->sample_rate * input->bytes_per_sample * 2;
+    timeval stream_start;
+    gettimeofday(&stream_start, NULL);
+    size_t total_bytes = 0;
+
     input->state = INPUT_RUNNING;
 
     while (true) {
@@ -133,7 +141,8 @@ void* file_rx_thread(void* ctx) {
 
         if (space_left > buf_len) {
             size_t len = fread(buf, sizeof(unsigned char), buf_len, dev_data->input_file);
-            circbuffer_append(input, buf, len);
+            total_bytes += len;
+            circbuffer_append_at(input, buf, len, timeval_offset(stream_start, (double)total_bytes / bytes_per_sec));
 
             timeval end;
             gettimeofday(&end, NULL);

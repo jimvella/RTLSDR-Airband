@@ -11,8 +11,10 @@ subdirectory, so filenames are unique within a run.
 """
 
 import re
+import wave
 from pathlib import Path
 
+import numpy as np
 from mutagen.mp3 import MP3
 
 # rtl_airband hardcodes MP3_RATE = 8000 Hz for all MP3 output
@@ -236,3 +238,35 @@ def split_file_names(
 def total_mp3_duration_s(mp3_dir: Path, filename_template: str) -> float:
     """Sum the audio duration of every MP3 file written for this template."""
     return sum(MP3(f).info.length for f in _template_mp3s(mp3_dir, filename_template))
+
+
+def template_wavs(wav_dir: Path, filename_template: str) -> list[Path]:
+    """The WAV files written for this template, in name order."""
+    return sorted(wav_dir.glob(f"{filename_template}_[0-9]*.wav"))
+
+
+def read_wav(path: Path) -> tuple[int, int, np.ndarray]:
+    """
+    Read a WAV written by a file output and check its header.
+
+    Asserts 16-bit PCM and that the header's sizes match the file, which shows the
+    file was finalized on close. Returns (sample rate, channels, samples as float
+    in [-1, 1], shape (frames, channels)).
+    """
+    with wave.open(str(path), "rb") as wav:
+        assert wav.getsampwidth() == 2, f"Expected 16-bit samples: {path.name}"
+        rate = wav.getframerate()
+        channels = wav.getnchannels()
+        frames = wav.getnframes()
+        raw = wav.readframes(frames)
+    assert path.stat().st_size == 44 + frames * 2 * channels, (
+        f"WAV header sizes ({frames} frames) do not match the file size "
+        f"{path.stat().st_size}: {path.name}"
+    )
+    samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32767.0
+    return rate, channels, samples.reshape(-1, channels)
+
+
+def wav_duration_s(path: Path) -> float:
+    rate, _, samples = read_wav(path)
+    return len(samples) / rate

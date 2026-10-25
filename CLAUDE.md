@@ -254,7 +254,7 @@ mixers: { mix1: { outputs: ( { type = "icecast"; ... } ); } };
 
 Mixers have **no `inputs` section** — a channel connects to a mixer implicitly via an output `type = "mixer"` + `name` (+ optional `ampfactor`, `balance`), see `mixer_connect_input` (`src/config.cpp:168-193`, `src/mixer.cpp:57`).
 
-Output types: `icecast`, `file`, `rawfile`, `udp_stream`, `mixer`, `pulse`.
+Output types: `icecast`, `file` (MP3 or WAV), `rawfile`, `udp_stream`, `mixer`, `pulse`.
 
 `file`/`rawfile` outputs with `split_on_transmission = true` can set `split_include_transmission_start` (per output > global > default `false`; the global is parsed in `main()` in `src/rtl_airband.cpp`, the per-output value in `parse_split_file_times` in `src/config.cpp`). It changes only file names, never when files close. A transmission cut by `split_max_file_time` is named `<template>_<tx start>_<part start>[_<freq>]<suffix>`; part 1 repeats the tx start, and unsplit transmissions keep `<template>_<start>`. Names are built by `build_output_filename` (`src/output.cpp`). Part 1 is written under the standalone `.tmp` name and renamed to the part name in `close_if_necessary` when it is split; parts 2+ open under the part name, in the tx start's dated folder. A file that reaches max time while squelch is closed ends the transmission, as it always closed there. Examples: `config/split_include_transmission_start*.conf`.
 
@@ -262,6 +262,8 @@ Output types: `icecast`, `file`, `rawfile`, `udp_stream`, `mixer`, `pulse`.
 
 Split file names give when the file's first sample was received, not when the output thread opened it (which trails by a varying 0.1 to 0.3 s). Each input stamps its chunks as they arrive (`circbuffer_append_at`, `input_t::last_append_time`; the file input uses its position in the recording instead, so names do not depend on `speedup_factor`). The demod thread reads the stamp with `available` under `buffer_lock` and works back to the batch's first output sample with `audio_batch_start_time` (`src/helper_functions.cpp`), storing it in `channel_t::waveout_time` (and `iq_out_time`, `AGC_EXTRA` samples later, for rawfile). `output_file_ready` names split files from these via `file_data::file_name_time` / `transmission_name_time`; `file_open_time` and `transmission_start_time` stay on the wall clock, so when files close is unchanged. Non-split files and mixers (whose channels have no stamp) still use the clock.
 
+`file` outputs take `format = "mp3"` (default) or `"wav"` (`file_data::format`, parsed in `parse_outputs`). WAV is a canonical 44-byte header plus 16-bit little-endian PCM at `WAVE_RATE`, interleaved for stereo mixers (`src/wav.cpp`: `wav_header`, `wav_samples`, `wav_is_appendable`, `wav_finalize`). WAV outputs get no lame encoder (`has_mp3_output` false). `open_file` writes the header with zero sizes; `close_file` sets them from the file length with `wav_finalize`. Appending checks the existing header with `wav_is_appendable` (the output is disabled rather than appending to anything else) and writes the discontinuity tones as PCM (`PcmTone`, alongside `LameTone`, both through `write_discontinuity`). Example: `config/wav_output.conf`.
+
 ### Unit Tests
 
-Tests use Google Test (fetched via CMake FetchContent). Test files in `src/test_*.cpp` cover filters, squelch, CTCSS, helper functions, and signal generation. `src/test_base_class.h` provides test utilities.
+Tests use Google Test (fetched via CMake FetchContent). Test files in `src/test_*.cpp` cover filters, squelch, CTCSS, helper functions, WAV writing, and signal generation. `src/test_base_class.h` provides test utilities.

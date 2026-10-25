@@ -47,10 +47,12 @@
 #include <ctime>
 #include <sstream>
 #include <string>
+#include <vector>
 #include "config.h"
 #include "helper_functions.h"
 #include "input-common.h"
 #include "rtl_airband.h"
+#include "wav.h"
 
 static void file_time(const time_t* t, struct tm* time) {
     if (use_localtime) {
@@ -307,8 +309,76 @@ static std::string build_output_filename(const file_data* fdata, bool include_tx
     return ss.str();
 }
 
+// The same tones as LameTone, as 16-bit PCM for WAV files
+class PcmTone {
+    std::vector<unsigned char> _data;
+
+   public:
+    PcmTone(mix_modes mixmode, int msec, unsigned int hz = 0) {
+        const int samples = (msec * WAVE_RATE) / 1000;
+        std::vector<float> buf(samples, 0.0f);
+        if (hz > 0) {
+            for (int i = 0; i < samples; ++i) {
+                buf[i] = 0.9 * sinf((float)i / WAVE_RATE * 2.0 * M_PI * hz);
+            }
+        }
+        _data.resize((size_t)samples * (mixmode == MM_STEREO ? 4 : 2));
+        wav_samples(buf.data(), mixmode == MM_STEREO ? buf.data() : NULL, samples, _data.data());
+    }
+
+    int write(FILE* f) {
+        if (fwrite(_data.data(), 1, _data.size(), f) != _data.size()) {
+            log(LOG_WARNING, "PcmTone: failed to write %zu bytes\n", _data.size());
+            return -1;
+        }
+        return 0;
+    }
+};
+
 /*
- * Open output file (mp3 or raw IQ) for append or initial write.
+ * Mark a discontinuity when appending to an existing audio file: three descending
+ * tones, the silence that was missed if in continuous mode, then three ascending.
+ */
+template <class Tone>
+static void write_discontinuity(file_data* fdata, mix_modes mixmode, const struct stat& st) {
+    Tone lt_a(mixmode, 120, 2222);
+    Tone lt_b(mixmode, 120, 1111);
+    Tone lt_c(mixmode, 120, 555);
+
+    int r = lt_a.write(fdata->f);
+    if (r == 0)
+        r = lt_b.write(fdata->f);
+    if (r == 0)
+        r = lt_c.write(fdata->f);
+
+    // fill in time delta with silence if continuous output mode
+    if (fdata->continuous) {
+        time_t now = time(NULL);
+        if (now > st.st_mtime) {
+            time_t delta = now - st.st_mtime;
+            if (delta > 3600) {
+                log(LOG_WARNING, "Too big time difference: %llu sec, limiting to one hour\n", (unsigned long long)delta);
+                delta = 3600;
+            }
+            Tone lt_silence(mixmode, 1000);
+            for (; (r == 0 && delta > 1); --delta)
+                r = lt_silence.write(fdata->f);
+        }
+    }
+
+    if (r == 0)
+        r = lt_c.write(fdata->f);
+    if (r == 0)
+        r = lt_b.write(fdata->f);
+    if (r == 0)
+        r = lt_a.write(fdata->f);
+
+    if (r < 0)
+        fseek(fdata->f, st.st_size, SEEK_SET);
+}
+
+/*
+ * Open output file (mp3, wav or raw IQ) for append or initial write.
  * If appending to an audio file, insert discontinuity indictor tones
  * as well as the appropriate amount of silence when in continuous mode.
  */
@@ -330,6 +400,9 @@ static int open_file(file_data* fdata, mix_modes mixmode, int is_audio) {
         return -1;
     }
 
+    const bool is_wav = is_audio && fdata->format == FF_WAV;
+    const int wav_channels = (mixmode == MM_STEREO) ? 2 : 1;
+
     struct stat st = {};
     if (!fdata->append || fstat(fileno(fdata->f), &st) != 0 || st.st_size == 0) {
         if (!fdata->split_on_transmission) {
@@ -337,7 +410,23 @@ static int open_file(file_data* fdata, mix_modes mixmode, int is_audio) {
         } else {
             debug_print("Writing to %s\n", fdata->file_path_tmp.c_str());
         }
+        if (is_wav) {
+            // sizes are filled in by wav_finalize when the file closes
+            unsigned char header[WAV_HEADER_SIZE];
+            wav_header(header, WAVE_RATE, wav_channels, 0);
+            if (fwrite(header, 1, sizeof(header), fdata->f) != sizeof(header)) {
+                return -1;
+            }
+        }
         return 0;
+    }
+    if (is_wav && !wav_is_appendable(fdata->f, WAVE_RATE, wav_channels)) {
+        log(LOG_ERR, "Cannot append to %s: not a %d Hz %s 16-bit WAV file\n", fdata->file_path.c_str(), WAVE_RATE, wav_channels == 2 ? "stereo" : "mono");
+        fclose(fdata->f);
+        fdata->f = NULL;
+        rename_if_exists(fdata->file_path_tmp.c_str(), fdata->file_path.c_str());
+        errno = EINVAL;
+        return -1;
     }
     if (rename_result < 0) {
         log(LOG_INFO, "Writing to %s\n", fdata->file_path.c_str());
@@ -347,42 +436,11 @@ static int open_file(file_data* fdata, mix_modes mixmode, int is_audio) {
         debug_print("Appending from pos %llu to %s\n", (unsigned long long)st.st_size, fdata->file_path_tmp.c_str());
     }
 
-    if (is_audio) {
-        // fill missing space with marker tones
-        LameTone lt_a(mixmode, 120, 2222);
-        LameTone lt_b(mixmode, 120, 1111);
-        LameTone lt_c(mixmode, 120, 555);
-
-        int r = lt_a.write(fdata->f);
-        if (r == 0)
-            r = lt_b.write(fdata->f);
-        if (r == 0)
-            r = lt_c.write(fdata->f);
-
-        // fill in time delta with silence if continuous output mode
-        if (fdata->continuous) {
-            time_t now = time(NULL);
-            if (now > st.st_mtime) {
-                time_t delta = now - st.st_mtime;
-                if (delta > 3600) {
-                    log(LOG_WARNING, "Too big time difference: %llu sec, limiting to one hour\n", (unsigned long long)delta);
-                    delta = 3600;
-                }
-                LameTone lt_silence(mixmode, 1000);
-                for (; (r == 0 && delta > 1); --delta)
-                    r = lt_silence.write(fdata->f);
-            }
-        }
-
-        if (r == 0)
-            r = lt_c.write(fdata->f);
-        if (r == 0)
-            r = lt_b.write(fdata->f);
-        if (r == 0)
-            r = lt_a.write(fdata->f);
-
-        if (r < 0)
-            fseek(fdata->f, st.st_size, SEEK_SET);
+    if (is_wav) {
+        fseek(fdata->f, 0, SEEK_END);
+        write_discontinuity<PcmTone>(fdata, mixmode, st);
+    } else if (is_audio) {
+        write_discontinuity<LameTone>(fdata, mixmode, st);
     }
     return 0;
 }
@@ -411,6 +469,12 @@ static void close_file(output_t* output) {
 
         // Reset the encoder bitstream so the frame count is correct for the next file
         lame_init_bitstream(output->lame);
+    }
+
+    if (fdata->type == O_FILE && fdata->f && fdata->format == FF_WAV) {
+        if (!wav_finalize(fdata->f)) {
+            log(LOG_WARNING, "Problem writing the WAV header of %s (%s)\n", fdata->file_path.c_str(), strerror(errno));
+        }
     }
 
     if (fdata->f) {
@@ -634,11 +698,13 @@ void process_outputs(channel_t* channel, int cur_scan_freq) {
                 continue;
             };
 
+            const bool is_wav = channel->outputs[k].type == O_FILE && fdata->format == FF_WAV;
+
             // encode mp3 bytes if O_FILE
             const auto& lame = channel->outputs[k].lame;
             const auto& lamebuf = channel->outputs[k].lamebuf;
             int mp3_bytes = 0;
-            if (channel->outputs[k].type == O_FILE) {
+            if (channel->outputs[k].type == O_FILE && !is_wav) {
                 mp3_bytes = lame_encode_buffer_ieee_float(lame, channel->waveout, (channel->mode == MM_STEREO ? channel->waveout_r : NULL), WAVE_BATCH, lamebuf, LAMEBUF_SIZE);
                 if (mp3_bytes < 0) {
                     log(LOG_WARNING, "lame_encode_buffer_ieee_float: %d\n", mp3_bytes);
@@ -650,7 +716,11 @@ void process_outputs(channel_t* channel, int cur_scan_freq) {
             }
 
             size_t buflen = 0, written = 0;
-            if (channel->outputs[k].type == O_FILE) {
+            if (is_wav) {
+                unsigned char wavbuf[WAVE_BATCH * 2 * 2];
+                buflen = wav_samples(channel->waveout, (channel->mode == MM_STEREO ? channel->waveout_r : NULL), WAVE_BATCH, wavbuf);
+                written = fwrite(wavbuf, 1, buflen, fdata->f);
+            } else if (channel->outputs[k].type == O_FILE) {
                 buflen = (size_t)mp3_bytes;
                 written = fwrite(lamebuf, 1, buflen, fdata->f);
             } else if (channel->outputs[k].type == O_RAWFILE) {

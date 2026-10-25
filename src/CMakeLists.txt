@@ -289,6 +289,7 @@ add_library (rtl_airband_base OBJECT
 	logging.cpp
 	filters.cpp
 	helper_functions.cpp
+	wav.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 	${rtl_airband_extra_sources}
 	)
@@ -359,6 +360,7 @@ if(BUILD_UNITTESTS)
 		generate_signal.cpp
 		helper_functions.cpp
 		udp_stream.cpp
+		wav.cpp
 		util.cpp
 	)
 

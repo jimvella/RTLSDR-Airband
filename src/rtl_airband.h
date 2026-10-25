@@ -129,9 +129,12 @@ struct icecast_data {
     shout_t* shout;
 };
 
+enum file_format { FF_MP3, FF_WAV };
+
 struct file_data {
     // set once by config
     enum output_type type;
+    enum file_format format;  // O_FILE only
     std::string basedir;
     std::string basename;
     bool dated_subdirectories;

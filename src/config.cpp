@@ -170,7 +170,20 @@ static int parse_outputs(libconfig::Setting& outs, channel_t* channel, int i, in
             fdata->basedir = outs[o]["directory"].c_str();
             fdata->basename = outs[o]["filename_template"].c_str();
             fdata->dated_subdirectories = outs[o].exists("dated_subdirectories") ? (bool)(outs[o]["dated_subdirectories"]) : false;
-            fdata->suffix = ".mp3";
+
+            fdata->format = FF_MP3;
+            if (outs[o].exists("format")) {
+                if (outs[o]["format"].getType() != libconfig::Setting::TypeString) {
+                    output_error(i, j, o, parsing_mixers, "format must be a string");
+                }
+                const string format = outs[o]["format"].c_str();
+                if (format == "wav") {
+                    fdata->format = FF_WAV;
+                } else if (format != "mp3") {
+                    output_error(i, j, o, parsing_mixers, "invalid value for format; must be one of: mp3, wav");
+                }
+            }
+            fdata->suffix = (fdata->format == FF_WAV) ? ".wav" : ".mp3";
 
             fdata->continuous = outs[o].exists("continuous") ? (bool)(outs[o]["continuous"]) : false;
             fdata->append = (!outs[o].exists("append")) || (bool)(outs[o]["append"]);
@@ -178,7 +191,7 @@ static int parse_outputs(libconfig::Setting& outs, channel_t* channel, int i, in
             fdata->include_freq = outs[o].exists("include_freq") ? (bool)(outs[o]["include_freq"]) : false;
             parse_split_file_times(outs[o], fdata, i, j, o, parsing_mixers);
 
-            channel->outputs[oo].has_mp3_output = true;
+            channel->outputs[oo].has_mp3_output = (fdata->format == FF_MP3);
 
             if (fdata->split_on_transmission) {
                 if (parsing_mixers) {

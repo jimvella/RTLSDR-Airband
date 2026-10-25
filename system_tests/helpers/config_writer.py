@@ -8,9 +8,11 @@ from pathlib import Path
 
 
 def _config_value(value) -> str:
-    """Render a Python value as a libconfig literal (bools are lowercase)."""
+    """Render a Python value as a libconfig literal (bools lowercase, strings quoted)."""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, str):
+        return f'"{value}"'
     return str(value)
 
 
